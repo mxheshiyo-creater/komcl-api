@@ -1,8 +1,0 @@
-{
-  "name": "komcl-api",
-  "version": "1.0.0",
-  "dependencies": {
-    "instagram-url-direct": "^1.0.13"
-  }
-}
-
