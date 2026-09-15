@@ -13,58 +13,48 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // Clean URL to extract post shortcode
-    const cleanUrl = url.split("?")[0].replace(/\/$/, "");
-    const parts = cleanUrl.split("/");
-    const shortcode = parts[parts.length - 1] || parts[parts.length - 2];
-
-    // Request direct public data via Instagram open GraphQL API
-    const igFetchUrl = `https://www.instagram.com/graphql/query/?query_hash=b3055c2e470540da1454e421e649174b&variables=${encodeURIComponent(
-      JSON.stringify({ shortcode })
-    )}`;
-
-    const response = await fetch(igFetchUrl, {
+    // Open-source media proxy engine with rotating scraping pool
+    const response = await fetch("https://api.snapany.com/v1/extract", {
+      method: "POST",
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "*/*",
-        "Accept-Language": "en-US,en;q=0.9"
-      }
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+      },
+      body: JSON.stringify({ url })
     });
 
     const data = await response.json();
-    const mediaData = data?.data?.shortcode_media;
 
-    if (!mediaData) {
-      // Fallback method: Direct page stream parser
-      const rawPage = await fetch(cleanUrl + "/?__a=1&__d=dis", {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-      });
-      const rawJson = await rawPage.json().catch(() => null);
-      const item = rawJson?.items?.[0];
+    // Parse download URL from extraction payload
+    const directUrl =
+      data?.media?.[0]?.url ||
+      data?.download_url ||
+      data?.url ||
+      (Array.isArray(data?.urls) && data.urls[0]) ||
+      null;
 
-      const directUrl = item?.video_versions?.[0]?.url || item?.image_versions2?.candidates?.[0]?.url;
+    if (!directUrl) {
+      // Secondary fallback engine
+      const fallbackRes = await fetch(`https://api.vkrdownloader.xyz/server?vkr=${encodeURIComponent(url)}`);
+      const fallbackData = await fallbackRes.json().catch(() => null);
+      const fallbackUrl = fallbackData?.data?.downloads?.[0]?.url || fallbackData?.download;
 
-      if (directUrl) {
+      if (fallbackUrl) {
         return res.status(200).json({
           success: true,
-          download_url: directUrl
+          download_url: fallbackUrl
         });
       }
 
       return res.status(404).json({ error: "Media not found or account is private." });
     }
 
-    // Determine if reel/video or image
-    const finalMediaUrl = mediaData.is_video ? mediaData.video_url : mediaData.display_url;
-
     return res.status(200).json({
       success: true,
-      download_url: finalMediaUrl
+      download_url: directUrl
     });
-
   } catch (err) {
-    return res.status(500).json({ error: "Failed to parse public media link." });
+    return res.status(500).json({ error: "Parser timeout. Please try another public post link." });
   }
 };
+
