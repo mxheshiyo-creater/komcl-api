@@ -9,47 +9,58 @@ module.exports = async (req, res) => {
   let { url } = req.query;
 
   if (!url || !url.includes("instagram.com")) {
-    return res.status(400).json({ error: "Please provide a valid public Instagram link." });
+    return res.status(400).json({ error: "Please provide a valid Instagram link." });
   }
 
-  // Tracking parameters (?igsh=..., ?stkn=...) ko saaf karna
-  url = url.split("?")[0].trim();
+  // URL cleaning
+  const cleanUrl = url.split("?")[0].replace(/\/$/, "");
 
-  // Engine 1: Delirius API
   try {
-    const res1 = await fetch(`https://delirius-api-oficial.vercel.app/api/download/instagram?url=${encodeURIComponent(url)}`, {
-      headers: { "User-Agent": "Mozilla/5.0" }
+    // Engine 1: DDInstagram / Instafix Open Gateway
+    const ddiUrl = cleanUrl.replace("instagram.com", "ddinstagram.com");
+    const ddiRes = await fetch(ddiUrl, {
+      headers: {
+        "User-Agent": "facebookexternalhit/1.1; Twitterbot/1.0"
+      },
+      redirect: "follow"
     });
-    const data1 = await res1.json().catch(() => null);
-    const media1 = data1?.data?.[0]?.url || data1?.data?.url;
-    if (media1) {
-      return res.status(200).json({ success: true, download_url: media1 });
-    }
-  } catch (e) {}
 
-  // Engine 2: Siputzx Fast Engine
-  try {
-    const res2 = await fetch(`https://api.siputzx.my.id/api/d/igdl?url=${encodeURIComponent(url)}`);
-    const data2 = await res2.json().catch(() => null);
-    const media2 = data2?.data?.[0]?.url || data2?.data?.url;
-    if (media2) {
-      return res.status(200).json({ success: true, download_url: media2 });
-    }
-  } catch (e) {}
+    const html = await ddiRes.text();
 
-  // Engine 3: SnapAny Core
-  try {
-    const res3 = await fetch("https://api.snapany.com/v1/extract", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url })
-    });
-    const data3 = await res3.json().catch(() => null);
-    const media3 = data3?.media?.[0]?.url || data3?.download_url;
-    if (media3) {
-      return res.status(200).json({ success: true, download_url: media3 });
-    }
-  } catch (e) {}
+    // Extract OpenGraph meta video / image tags
+    const videoMatch = html.match(/<meta\s+(?:property|name)="og:video(?::secure_url)?"\s+content="([^"]+)"/i) ||
+                       html.match(/content="([^"]+)"\s+(?:property|name)="og:video(?::secure_url)?"/i);
 
-  return res.status(404).json({ error: "Media not found. Verify that the account is public." });
+    const imageMatch = html.match(/<meta\s+(?:property|name)="og:image"\s+content="([^"]+)"/i) ||
+                       html.match(/content="([^"]+)"\s+(?:property|name)="og:image"/i);
+
+    const mediaUrl = videoMatch ? videoMatch[1] : (imageMatch ? imageMatch[1] : null);
+
+    if (mediaUrl) {
+      // Decode HTML entities like &amp;
+      const cleanMediaUrl = mediaUrl.replace(/&amp;/g, "&");
+      return res.status(200).json({
+        success: true,
+        download_url: cleanMediaUrl
+      });
+    }
+
+    // Engine 2: Fallback direct shortcode resolver
+    const shortcode = cleanUrl.split("/").filter(Boolean).pop();
+    const fallbackRes = await fetch(`https://instastories.watch/api/v1/post/${shortcode}`).catch(() => null);
+    const fallbackData = await fallbackRes?.json().catch(() => null);
+    const fallbackUrl = fallbackData?.video_url || fallbackData?.image_url;
+
+    if (fallbackUrl) {
+      return res.status(200).json({
+        success: true,
+        download_url: fallbackUrl
+      });
+    }
+
+    return res.status(404).json({ error: "Media not found. Ensure the post is public." });
+
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to parse public media link." });
+  }
 };
