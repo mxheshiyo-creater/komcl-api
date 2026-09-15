@@ -6,55 +6,50 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
 
-  const { url } = req.query;
+  let { url } = req.query;
 
   if (!url || !url.includes("instagram.com")) {
     return res.status(400).json({ error: "Please provide a valid public Instagram link." });
   }
 
+  // Tracking parameters (?igsh=..., ?stkn=...) ko saaf karna
+  url = url.split("?")[0].trim();
+
+  // Engine 1: Delirius API
   try {
-    // Open-source media proxy engine with rotating scraping pool
-    const response = await fetch("https://api.snapany.com/v1/extract", {
+    const res1 = await fetch(`https://delirius-api-oficial.vercel.app/api/download/instagram?url=${encodeURIComponent(url)}`, {
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
+    const data1 = await res1.json().catch(() => null);
+    const media1 = data1?.data?.[0]?.url || data1?.data?.url;
+    if (media1) {
+      return res.status(200).json({ success: true, download_url: media1 });
+    }
+  } catch (e) {}
+
+  // Engine 2: Siputzx Fast Engine
+  try {
+    const res2 = await fetch(`https://api.siputzx.my.id/api/d/igdl?url=${encodeURIComponent(url)}`);
+    const data2 = await res2.json().catch(() => null);
+    const media2 = data2?.data?.[0]?.url || data2?.data?.url;
+    if (media2) {
+      return res.status(200).json({ success: true, download_url: media2 });
+    }
+  } catch (e) {}
+
+  // Engine 3: SnapAny Core
+  try {
+    const res3 = await fetch("https://api.snapany.com/v1/extract", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url })
     });
-
-    const data = await response.json();
-
-    // Parse download URL from extraction payload
-    const directUrl =
-      data?.media?.[0]?.url ||
-      data?.download_url ||
-      data?.url ||
-      (Array.isArray(data?.urls) && data.urls[0]) ||
-      null;
-
-    if (!directUrl) {
-      // Secondary fallback engine
-      const fallbackRes = await fetch(`https://api.vkrdownloader.xyz/server?vkr=${encodeURIComponent(url)}`);
-      const fallbackData = await fallbackRes.json().catch(() => null);
-      const fallbackUrl = fallbackData?.data?.downloads?.[0]?.url || fallbackData?.download;
-
-      if (fallbackUrl) {
-        return res.status(200).json({
-          success: true,
-          download_url: fallbackUrl
-        });
-      }
-
-      return res.status(404).json({ error: "Media not found or account is private." });
+    const data3 = await res3.json().catch(() => null);
+    const media3 = data3?.media?.[0]?.url || data3?.download_url;
+    if (media3) {
+      return res.status(200).json({ success: true, download_url: media3 });
     }
+  } catch (e) {}
 
-    return res.status(200).json({
-      success: true,
-      download_url: directUrl
-    });
-  } catch (err) {
-    return res.status(500).json({ error: "Parser timeout. Please try another public post link." });
-  }
+  return res.status(404).json({ error: "Media not found. Verify that the account is public." });
 };
-
